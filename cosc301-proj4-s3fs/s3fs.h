@@ -35,9 +35,9 @@ typedef struct {
 	blksize_t blocksize;
 	blkcnt_t block;
 	dev_t devid;
-	struct timeval a_time;
-   	struct timeval m_time;
-    	struct timeval c_time;	
+	time_t a_time;
+   	time_t m_time;
+    	time_t c_time;	
 } s3dirent_t;
 
 /*

@@ -36,8 +36,7 @@ int add_object(const char * path, s3dirent_t * object){
 //Only adds to parent directory, doesn't create the new object under pathname
     s3context_t * ctx = GET_PRIVATE_DATA;
     char * temp = dirname(strdup(path));
-    
-    printf("Adding %s to %s!\n", path, temp);
+  
     //Get parent directory object from s3
     s3dirent_t * retrieved_object = NULL;
     ssize_t rv = s3fs_get_object((const char *)ctx->s3bucket, (const char *)temp, (uint8_t **)&retrieved_object, 0, 0);
@@ -84,11 +83,10 @@ int add_object(const char * path, s3dirent_t * object){
 	free(retrieved_object);
 	return -1;
     } else {
-        printf("Successfully put test object in s3 (s3fs_put_object)\n");
+        printf("Successfully put object in s3 (s3fs_put_object)\n");
     }  
-    printf("added.!!!!!!!!!!!!!!!");
 
-    free(retrieved_object);
+    free(retrieved_object);  free(temp);
 
     return 0;  
 }
@@ -108,12 +106,10 @@ int fs_getattr(const char *path, struct stat *statbuf) {
     //Get parent directory
     s3dirent_t *retrieved_object = NULL;
     char * temp = dirname(strdup(path));
-    printf("***************\n", temp);
-   printf("Gettin attributes!\n");
     ssize_t rv = s3fs_get_object((const char *)ctx->s3bucket, (const char *)temp, (uint8_t **)&retrieved_object, 0, 0);
     if (rv < 0) {
         printf("Failure in s3fs_get_object\n");
-	free(retrieved_object); free(temp);
+	free(retrieved_object); 
 	return -ENOENT;
     } else {
         printf("Successfully retrieved object from s3 (s3fs_get_object)\n");
@@ -125,13 +121,14 @@ int fs_getattr(const char *path, struct stat *statbuf) {
     int i = 0;
 
     //Search for object in directory
+    char * temp2 = basename(strdup(path));
     int found = -1;
     for(; i < numdirent; i++){
-	if (retrieved_object[i].name == path){
+	if (strcmp(retrieved_object[i].name,temp2) == 0 ){
 		found = i;
 		break; }}
     if (found == -1){ 
-	free(retrieved_object); free(temp);
+	free(retrieved_object); 
 	return -ENOENT; }
 
 	//now have object- if it's a directory, the metadata is in it's own object. So go get that instead
@@ -142,7 +139,7 @@ int fs_getattr(const char *path, struct stat *statbuf) {
     	ssize_t rv = s3fs_get_object((const char *)ctx->s3bucket, path, (uint8_t **)&retrieved_object, 0, 0);
     	if (rv < 0) {
     	    printf("Failure in s3fs_get_object\n");
-	    free(retrieved_object); free(temp);
+	    free(retrieved_object); 
 	    return -ENOENT;
    	 } else {
    	     printf("Successfully retrieved object from s3 (s3fs_get_object)\n");
@@ -154,12 +151,11 @@ int fs_getattr(const char *path, struct stat *statbuf) {
     statbuf->st_uid = retrieved_object[found].user;
     statbuf->st_gid = retrieved_object[found].group;
     statbuf->st_size = retrieved_object[found].size;
-    statbuf->st_atime = retrieved_object[found].a_time.tv_sec;
-    statbuf->st_mtime = retrieved_object[found].m_time.tv_sec;
-    statbuf->st_ctime = retrieved_object[found].c_time.tv_sec;
+    statbuf->st_atime = retrieved_object[found].a_time;
+    statbuf->st_mtime = retrieved_object[found].m_time;
+    statbuf->st_ctime = retrieved_object[found].c_time;
 
-    free(retrieved_object); free(temp);
-    printf("AtTrIbUtEs!\n");
+    free(retrieved_object); 
     return 0;
 }
 
@@ -174,12 +170,21 @@ int fs_getattr(const char *path, struct stat *statbuf) {
 int fs_mknod(const char *path, mode_t mode, dev_t dev) {
     fprintf(stderr, "fs_mknod(path=\"%s\", mode=0%3o)\n", path, mode);
     s3context_t *ctx = GET_PRIVATE_DATA;
-
+    
+    uint8_t *retrieved_object = NULL;
+    char * temp3 = basename(strdup(path));
+    ssize_t rv = s3fs_get_object((const char *)ctx->s3bucket, (const char *)temp3, &retrieved_object, 0, 0);
+    if (rv >= 0) {
+	free(temp3); free(retrieved_object); 
+	return -EEXIST;        
+    } 
+    
     char * temp = strdup(path);
 
     //Create new node for directory, with metadata
+    char * temp2 = basename(strdup(path));
     s3dirent_t * newentry = malloc(sizeof(s3dirent_t));
-    strcpy(newentry->name, path);
+    strcpy(newentry->name, temp2);
     newentry->type = 'f';
     newentry->use = 1;
     newentry->mode = mode;
@@ -189,32 +194,32 @@ int fs_mknod(const char *path, mode_t mode, dev_t dev) {
     newentry->block = 0;
     newentry->blocksize = 0;
     newentry->devid = 0;
-    gettimeofday(&newentry->a_time, NULL);
-    gettimeofday(&newentry->m_time, NULL);
-    gettimeofday(&newentry->c_time, NULL);
+    newentry->a_time = time(NULL);
+    newentry->m_time = time(NULL);
+    newentry->c_time = time(NULL);
 
     //Add to parent directory
     int x = add_object(path, newentry);
     if (x == 0) { printf("Successfully modified parent directory\n"); }
     else {printf("Failed to modify parent directory\n");
-	free(temp); free(newentry);
+	free(temp); free(newentry);  
 	return -1; }
 
     //Create buffer, set it to empty
     char * buffer = NULL;
 
     //Put buffer onto s3
-    ssize_t rv = s3fs_put_object((const char *)ctx->s3bucket, path, (const uint8_t *)buffer, 0);
+    rv = s3fs_put_object((const char *)ctx->s3bucket, path, (const uint8_t *)buffer, 0);
     if (rv < 0) {
         printf("Failure in s3fs_put_object\n");
 	free(temp); free(newentry);
 	return -1;
     } else {
-        printf("Successfully put test object in s3 (s3fs_put_object)\n");
+        printf("Successfully put object in s3 (s3fs_put_object)\n");
     }  
     
-    free(temp); free(newentry);
-    return 1;
+    free(temp); free(newentry);  
+    return 0;
 }
 
 /* 
@@ -233,8 +238,9 @@ int fs_mkdir(const char *path, mode_t mode) {
 
     //Create new node for the directory in which the new dir is to be placed
     //No metadata here
+    char * temp2 = basename(strdup(path));
     s3dirent_t * newentry = malloc(sizeof(s3dirent_t));
-    strcpy(newentry->name, path);
+    strcpy(newentry->name, temp2);
     newentry->type = 'd';
     newentry->use = 1;
     newentry->mode = mode;
@@ -244,9 +250,9 @@ int fs_mkdir(const char *path, mode_t mode) {
     newentry->block = 0;
     newentry->blocksize = 0;
     newentry->devid = 0;
-    gettimeofday(&newentry->a_time, NULL);
-    gettimeofday(&newentry->m_time, NULL);
-    gettimeofday(&newentry->c_time, NULL);
+    newentry->a_time = time(NULL);
+    newentry->m_time = time(NULL);
+    newentry->c_time = time(NULL);
 
     char * temp = strdup(path);
 
@@ -269,9 +275,9 @@ int fs_mkdir(const char *path, mode_t mode) {
     newdir->block = 0;
     newdir->blocksize = 0;
     newdir->devid = 0;
-    gettimeofday(&newdir->a_time, NULL);
-    gettimeofday(&newdir->m_time, NULL);
-    gettimeofday(&newdir->c_time, NULL);
+    newdir->a_time = time(NULL);
+    newdir->m_time = time(NULL);
+    newdir->c_time = time(NULL);
 
     //Put object on s3
     ssize_t rv = s3fs_put_object((const char *)ctx->s3bucket, path, (const uint8_t *)newdir, sizeof(s3dirent_t));
@@ -282,8 +288,7 @@ int fs_mkdir(const char *path, mode_t mode) {
     } else {
         printf("Successfully put object in s3 (s3fs_put_object)\n");
     }  
-    printf("Dir made.**********\n");
-    free(newdir); free(newentry); free(temp);
+    free(newdir); free(newentry); free(temp); 
  
     return 0;
 }
@@ -523,7 +528,7 @@ int fs_rename(const char *path, const char *newpath) {
 int fs_chmod(const char *path, mode_t mode) {
     fprintf(stderr, "fs_chmod(fpath=\"%s\", mode=0%03o)\n", path, mode);
     //s3context_t *ctx = GET_PRIVATE_DATA;
-    return -EIO;
+    return 0;
 }
 
 /*
@@ -532,7 +537,7 @@ int fs_chmod(const char *path, mode_t mode) {
 int fs_chown(const char *path, uid_t uid, gid_t gid) {
     fprintf(stderr, "fs_chown(path=\"%s\", uid=%d, gid=%d)\n", path, uid, gid);
    // s3context_t *ctx = GET_PRIVATE_DATA;
-    return -EIO;
+    return 0;
 }
 
 /*
@@ -613,7 +618,7 @@ int fs_truncate(const char *path, off_t newsize) {
 int fs_utime(const char *path, struct utimbuf *ubuf) {
     fprintf(stderr, "fs_utime(path=\"%s\")\n", path);
     //s3context_t *ctx = GET_PRIVATE_DATA;
-    return -EIO;
+    return 0;
 }
 
 
@@ -696,7 +701,7 @@ int fs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_
         printf("Successfully retrieved object from s3 (s3fs_get_object)\n");
     }
 
-    gettimeofday(&ret_obj[k].a_time, NULL); 
+    ret_obj[k].a_time = time(NULL);
 
     //read retrieved_object into buf, starting at offset. 
     int i = offset;
@@ -763,7 +768,7 @@ int fs_write(const char *path, const char *buf, size_t size, off_t offset, struc
 	return -ENOENT;
     } else {
         printf("Successfully retrieved object from s3 (s3fs_get_object)\n"); }
-    gettimeofday(&ret_obj[k].a_time, NULL); 
+    ret_obj[k].a_time = time(NULL); 
 
     //Make proper size, using truncate
     if ((size + offset) > ret_obj[k].size){
@@ -780,7 +785,7 @@ int fs_write(const char *path, const char *buf, size_t size, off_t offset, struc
     }
 
     ret_obj[k].size = sizeof(retrieved_object);
-    gettimeofday(&ret_obj[k].m_time, NULL); 
+    ret_obj[k].m_time = time(NULL); 
     
     //Put back on s3
     rv = s3fs_put_object((const char *)ctx->s3bucket, path, (const uint8_t *)retrieved_object, sizeof(retrieved_object));
@@ -820,7 +825,7 @@ int fs_write(const char *path, const char *buf, size_t size, off_t offset, struc
 int fs_flush(const char *path, struct fuse_file_info *fi) {
     fprintf(stderr, "fs_flush(path=\"%s\", fi=%p)\n", path, fi);
    // s3context_t *ctx = GET_PRIVATE_DATA;
-    return -EIO;
+    return 0;
 }
 
 /*
@@ -848,7 +853,7 @@ int fs_release(const char *path, struct fuse_file_info *fi) {
  */
 int fs_fsync(const char *path, int datasync, struct fuse_file_info *fi) {
     fprintf(stderr, "fs_fsync(path=\"%s\")\n", path);
-	return 1;
+	return 0;
 
 }
 
@@ -931,7 +936,7 @@ int fs_releasedir(const char *path, struct fuse_file_info *fi) {
 int fs_fsyncdir(const char *path, int datasync, struct fuse_file_info *fi) {
     fprintf(stderr, "fs_fsyncdir(path=\"%s\")\n", path);
     //s3context_t *ctx = GET_PRIVATE_DATA;
-    return -EIO;
+    return 0;
 }
 
 /*
@@ -962,9 +967,9 @@ void *fs_init(struct fuse_conn_info *conn)
     newentry->block = 0;
     newentry->blocksize = 0;
     newentry->devid = 0;
-    gettimeofday(&newentry->a_time, NULL); 
-    gettimeofday(&newentry->m_time, NULL);
-    gettimeofday(&newentry->c_time, NULL);
+    newentry->a_time = time(NULL);
+    newentry->m_time = time(NULL);
+    newentry->c_time = time(NULL);
 
     //put onto s3
     ssize_t rv = s3fs_put_object((const char *)(ctx->s3bucket), "/", (const uint8_t *)newentry, (sizeof(s3dirent_t)));

@@ -31,10 +31,13 @@ typedef struct {
 	mode_t mode;
     	uid_t user;
   	gid_t group;
- 	ssize_t size;
-	struct timeval a_time;
-   	struct timeval m_time;
-    	struct timeval c_time;	
+ 	off_t size;
+	blksize_t blocksize;
+	blkcnt_t block;
+	dev_t devid;
+	time_t a_time;
+   	time_t m_time;
+    	time_t c_time;	
 } s3dirent_t;
 
 /*
